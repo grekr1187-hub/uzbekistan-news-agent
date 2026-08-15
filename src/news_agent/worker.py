@@ -7,7 +7,7 @@ from .collector import SourceCollector
 from .config import Settings
 from .dedupe import is_duplicate
 from .editor import AIEditor
-from .models import EditorialDecision, Story
+from .models import Story
 from .sources import DEFAULT_SOURCES
 from .store import StoryStore, make_review_key
 from .telegram import TelegramPublisher
@@ -44,9 +44,7 @@ class NewsWorker:
                     self.store.set_review_status(story.url, "rejected")
                     continue
                 key = story.review_key or make_review_key(story.url)
-                message_id = await self.publisher.send_review(
-                    decision, key, [story.url], self.settings.telegram_admin_user_id
-                )
+                message_id = await self.publisher.send_review(decision, key, [story.url], self.settings.telegram_admin_user_id)
                 self.store.set_review_message(story.url, message_id)
                 reviews += 1
             except Exception as exc:
@@ -64,24 +62,14 @@ class NewsWorker:
             if story.review_status in {"rejected", "published"}:
                 return
             self.store.set_review_status(story.url, "rejected")
-            await self.publisher.finish_review(
-                self.settings.telegram_admin_user_id,
-                story.review_message_id,
-                "❌ <b>Отклонено</b>\n\nНовость не опубликована.",
-            )
+            await self.publisher.finish_review(self.settings.telegram_admin_user_id, story.review_message_id, "❌ <b>Отклонено</b>\n\nНовость не опубликована.")
             return
 
         if action == "regenerate":
             if story.review_status in {"rejected", "published"}:
                 return
             decision = await self.editor.evaluate_and_write(story, [])
-            await self.publisher.update_review(
-                self.settings.telegram_admin_user_id,
-                story.review_message_id,
-                decision,
-                [story.url],
-                story_key,
-            )
+            await self.publisher.update_review(self.settings.telegram_admin_user_id, story.review_message_id, decision, [story.url], story_key)
             self.store.mark_status(story.url, decision.status)
             return
 
@@ -96,11 +84,7 @@ class NewsWorker:
                 return
             message_id = await self.publisher.publish(decision, [story.url])
             self.store.mark_published(story.url, message_id)
-            await self.publisher.finish_review(
-                self.settings.telegram_admin_user_id,
-                story.review_message_id,
-                f"✅ <b>Опубликовано</b>\n\nСообщение канала: #{message_id}",
-            )
+            await self.publisher.finish_review(self.settings.telegram_admin_user_id, story.review_message_id, f"✅ <b>Опубликовано</b>\n\nСообщение канала: #{message_id}")
 
     async def process_updates(self) -> None:
         while True:
@@ -115,6 +99,9 @@ class NewsWorker:
                     if len(parts) != 3 or parts[0] != "news":
                         continue
                     action, key = parts[1], parts[2]
+                    if callback.from_user.id != self.settings.telegram_admin_user_id:
+                        await self.publisher.answer_callback(callback.id, "Нет доступа", show_alert=True)
+                        continue
                     await self.publisher.answer_callback(callback.id, "Обрабатываю…")
                     try:
                         await self.handle_review_action(action, key, callback.from_user.id)
@@ -126,6 +113,7 @@ class NewsWorker:
                 await asyncio.sleep(5)
 
     async def run_forever(self) -> None:
+        await self.publisher.initialize()
         update_task = asyncio.create_task(self.process_updates())
         try:
             while True:
