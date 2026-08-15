@@ -9,12 +9,18 @@ class Settings:
     openai_api_key: str
     telegram_bot_token: str
     telegram_channel_id: str
+    telegram_admin_user_id: int
     poll_interval_seconds: int = 300
     database_path: str = "data/news.db"
 
     @classmethod
     def from_env(cls) -> "Settings":
-        required = ("OPENAI_API_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHANNEL_ID")
+        required = (
+            "OPENAI_API_KEY",
+            "TELEGRAM_BOT_TOKEN",
+            "TELEGRAM_CHANNEL_ID",
+            "TELEGRAM_ADMIN_USER_ID",
+        )
         missing = [name for name in required if not os.getenv(name)]
         if missing:
             raise ValueError("Missing required environment variables: " + ", ".join(missing))
@@ -22,6 +28,7 @@ class Settings:
             openai_api_key=os.environ["OPENAI_API_KEY"],
             telegram_bot_token=os.environ["TELEGRAM_BOT_TOKEN"],
             telegram_channel_id=os.environ["TELEGRAM_CHANNEL_ID"],
+            telegram_admin_user_id=int(os.environ["TELEGRAM_ADMIN_USER_ID"]),
             poll_interval_seconds=int(os.getenv("POLL_INTERVAL_SECONDS", "300")),
             database_path=os.getenv("DATABASE_PATH", "data/news.db"),
         )
