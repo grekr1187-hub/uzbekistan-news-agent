@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import TelegramError
 
 from .models import EditorialDecision
 
@@ -18,6 +17,14 @@ def render(decision: EditorialDecision, sources: list[str], review: bool = False
             f"🇺🇿 Узбекистан слушает{review_note}")
 
 
+def review_keyboard(story_key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Опубликовать", callback_data=f"news:approve:{story_key}")],
+        [InlineKeyboardButton("❌ Отклонить", callback_data=f"news:reject:{story_key}"),
+         InlineKeyboardButton("✏️ Переписать", callback_data=f"news:regenerate:{story_key}")],
+    ])
+
+
 class TelegramPublisher:
     def __init__(self, token: str, channel_id: str):
         self.bot = Bot(token=token)
@@ -28,37 +35,33 @@ class TelegramPublisher:
         return str(message.message_id)
 
     async def send_review(self, decision: EditorialDecision, story_key: str, sources: list[str], admin_user_id: int) -> str:
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Опубликовать", callback_data=f"news:approve:{story_key}")],
-            [InlineKeyboardButton("❌ Отклонить", callback_data=f"news:reject:{story_key}"),
-             InlineKeyboardButton("✏️ Переписать", callback_data=f"news:regenerate:{story_key}")],
-        ])
         message = await self.bot.send_message(
             chat_id=admin_user_id,
             text=render(decision, sources, review=True),
             parse_mode="HTML",
             disable_web_page_preview=True,
-            reply_markup=keyboard,
+            reply_markup=review_keyboard(story_key),
         )
         return str(message.message_id)
 
-    async def update_review(self, message_id: str, decision: EditorialDecision, sources: list[str], story_key: str) -> None:
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Опубликовать", callback_data=f"news:approve:{story_key}")],
-            [InlineKeyboardButton("❌ Отклонить", callback_data=f"news:reject:{story_key}"),
-             InlineKeyboardButton("✏️ Переписать", callback_data=f"news:regenerate:{story_key}")],
-        ])
+    async def update_review(self, admin_user_id: int, message_id: str, decision: EditorialDecision, sources: list[str], story_key: str) -> None:
         await self.bot.edit_message_text(
-            chat_id=message_id.split(":", 1)[0] if ":" in message_id else None,
-            message_id=int(message_id.split(":")[-1]),
+            chat_id=admin_user_id,
+            message_id=int(message_id),
             text=render(decision, sources, review=True),
             parse_mode="HTML",
             disable_web_page_preview=True,
-            reply_markup=keyboard,
+            reply_markup=review_keyboard(story_key),
         )
+
+    async def finish_review(self, admin_user_id: int, message_id: str, text: str) -> None:
+        await self.bot.edit_message_text(chat_id=admin_user_id, message_id=int(message_id), text=text, parse_mode="HTML")
 
     async def answer_callback(self, callback_id: str, text: str, show_alert: bool = False) -> None:
         await self.bot.answer_callback_query(callback_id, text=text, show_alert=show_alert)
+
+    async def get_updates(self, offset: int | None = None):
+        return await self.bot.get_updates(offset=offset, timeout=25, allowed_updates=["callback_query"])
 
     async def close(self) -> None:
         await self.bot.shutdown()
