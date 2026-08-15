@@ -30,6 +30,9 @@ class TelegramPublisher:
         self.bot = Bot(token=token)
         self.channel_id = channel_id
 
+    async def initialize(self) -> None:
+        await self.bot.initialize()
+
     async def publish(self, decision: EditorialDecision, sources: list[str]) -> str:
         message = await self.bot.send_message(chat_id=self.channel_id, text=render(decision, sources), parse_mode="HTML", disable_web_page_preview=True)
         return str(message.message_id)
