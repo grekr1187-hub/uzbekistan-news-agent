@@ -63,8 +63,12 @@ class NewsWorker:
                     continue
                 video = await self._make_video(story, decision)
 
-                # Launch test: publish the first selected current-day Uzbekistan headline directly once.
-                launch_post = (self.bootstrap_url and story.url == self.bootstrap_url) or (self.bootstrap_url == "" and self.bootstrap_title.lower() in story.title.lower())
+                # One-time launch test: publish the requested current-day Uzbekistan headline directly.
+                launch_post = (
+                    self.bootstrap_url == "*"
+                    or (self.bootstrap_url and story.url == self.bootstrap_url)
+                    or (self.bootstrap_url == "" and self.bootstrap_title.lower() in story.title.lower())
+                )
                 if launch_post:
                     message_id = await self.publisher.publish(decision, [story.url], video)
                     self.store.mark_published(story.url, message_id)
@@ -78,6 +82,14 @@ class NewsWorker:
             except Exception as exc:
                 log.exception("story_review_failed url=%s error=%s", story.url, exc.__class__.__name__)
         return reviews
+
+    async def run_scheduled(self) -> int:
+        """Run exactly one collection/publish cycle for Railway cron/manual runs."""
+        await self.publisher.initialize()
+        try:
+            return await self.run_once()
+        finally:
+            await self.publisher.close()
 
     async def handle_review_action(self, action: str, story_key: str, user_id: int) -> None:
         if user_id != self.settings.telegram_admin_user_id:
