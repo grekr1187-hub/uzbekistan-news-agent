@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from .collector import SourceCollector
 from .config import Settings
@@ -49,6 +50,7 @@ class NewsWorker:
                 reviews += 1
             except Exception as exc:
                 log.exception("story_review_failed url=%s error=%s", story.url, exc.__class__.__name__)
+        log.info("review_cycle_complete reviews=%s", reviews)
         return reviews
 
     async def handle_review_action(self, action: str, story_key: str, user_id: int) -> None:
@@ -86,31 +88,44 @@ class NewsWorker:
             self.store.mark_published(story.url, message_id)
             await self.publisher.finish_review(self.settings.telegram_admin_user_id, story.review_message_id, f"✅ <b>Опубликовано</b>\n\nСообщение канала: #{message_id}")
 
+    async def _handle_updates(self, updates) -> None:
+        for update in updates:
+            self._update_offset = update.update_id + 1
+            callback = update.callback_query
+            if callback is None or callback.from_user is None or not callback.data:
+                continue
+            parts = callback.data.split(":", 2)
+            if len(parts) != 3 or parts[0] != "news":
+                continue
+            action, key = parts[1], parts[2]
+            if callback.from_user.id != self.settings.telegram_admin_user_id:
+                await self.publisher.answer_callback(callback.id, "Нет доступа", show_alert=True)
+                continue
+            await self.publisher.answer_callback(callback.id, "Обрабатываю…")
+            try:
+                await self.handle_review_action(action, key, callback.from_user.id)
+            except Exception as exc:
+                log.exception("review_action_failed key=%s error=%s", key, exc.__class__.__name__)
+                await self.publisher.answer_callback(callback.id, "Ошибка обработки", show_alert=True)
+
     async def process_updates(self) -> None:
         while True:
             try:
                 updates = await self.publisher.get_updates(self._update_offset)
-                for update in updates:
-                    self._update_offset = update.update_id + 1
-                    callback = update.callback_query
-                    if callback is None or callback.from_user is None or not callback.data:
-                        continue
-                    parts = callback.data.split(":", 2)
-                    if len(parts) != 3 or parts[0] != "news":
-                        continue
-                    action, key = parts[1], parts[2]
-                    if callback.from_user.id != self.settings.telegram_admin_user_id:
-                        await self.publisher.answer_callback(callback.id, "Нет доступа", show_alert=True)
-                        continue
-                    await self.publisher.answer_callback(callback.id, "Обрабатываю…")
-                    try:
-                        await self.handle_review_action(action, key, callback.from_user.id)
-                    except Exception as exc:
-                        log.exception("review_action_failed key=%s error=%s", key, exc.__class__.__name__)
-                        await self.publisher.answer_callback(callback.id, "Ошибка обработки", show_alert=True)
+                await self._handle_updates(updates)
             except Exception as exc:
                 log.exception("telegram_updates_failed error=%s", exc.__class__.__name__)
                 await asyncio.sleep(5)
+
+    async def process_updates_for(self, seconds: int = 180) -> None:
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            try:
+                updates = await self.publisher.get_updates(self._update_offset)
+                await self._handle_updates(updates)
+            except Exception as exc:
+                log.exception("telegram_updates_failed error=%s", exc.__class__.__name__)
+                await asyncio.sleep(2)
 
     async def run_forever(self) -> None:
         await self.publisher.initialize()
@@ -124,4 +139,12 @@ class NewsWorker:
                 await asyncio.sleep(self.settings.poll_interval_seconds)
         finally:
             update_task.cancel()
+            await self.publisher.close()
+
+    async def run_scheduled(self) -> None:
+        await self.publisher.initialize()
+        try:
+            await self.run_once()
+            await self.process_updates_for(180)
+        finally:
             await self.publisher.close()
