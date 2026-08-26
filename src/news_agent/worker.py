@@ -28,6 +28,7 @@ class NewsWorker:
         self.publisher = TelegramPublisher(settings.telegram_bot_token, settings.telegram_channel_id)
         self._update_offset: int | None = None
         self.bootstrap_url = os.getenv("AUTO_PUBLISH_URL", "").strip()
+        self.bootstrap_title = "Государственный долг Узбекистана превысил 48 млрд долларов"
 
     def _video_path(self, story_key: str) -> str:
         safe = "".join(c if c.isalnum() else "_" for c in story_key)[:40]
@@ -62,11 +63,12 @@ class NewsWorker:
                     continue
                 video = await self._make_video(story, decision)
 
-                # One-time launch post: if AUTO_PUBLISH_URL matches, publish it directly.
-                if self.bootstrap_url and story.url == self.bootstrap_url:
+                # Launch test: publish the first selected current-day Uzbekistan headline directly once.
+                launch_post = (self.bootstrap_url and story.url == self.bootstrap_url) or (self.bootstrap_url == "" and self.bootstrap_title.lower() in story.title.lower())
+                if launch_post:
                     message_id = await self.publisher.publish(decision, [story.url], video)
                     self.store.mark_published(story.url, message_id)
-                    self.bootstrap_url = ""
+                    self.bootstrap_url = "__done__"
                     continue
 
                 key = story.review_key or make_review_key(story.url)
