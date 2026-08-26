@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import tempfile
 from pathlib import Path
 
@@ -26,14 +27,19 @@ class NewsWorker:
         self.editor = AIEditor(settings.openai_api_key)
         self.publisher = TelegramPublisher(settings.telegram_bot_token, settings.telegram_channel_id)
         self._update_offset: int | None = None
+        self.bootstrap_url = os.getenv("AUTO_PUBLISH_URL", "").strip()
 
-    def _video_path(self, story_key: str, decision) -> str:
+    def _video_path(self, story_key: str) -> str:
         safe = "".join(c if c.isalnum() else "_" for c in story_key)[:40]
         return str(Path(tempfile.gettempdir()) / f"news_{safe}.mp4")
 
-    async def _make_video(self, story: Story, decision) -> str:
-        path = self._video_path(story.review_key or make_review_key(story.url), decision)
-        return await asyncio.to_thread(make_news_video, decision.ru_title, decision.ru_body, path)
+    async def _make_video(self, story: Story, decision) -> str | None:
+        try:
+            path = self._video_path(story.review_key or make_review_key(story.url))
+            return await asyncio.to_thread(make_news_video, decision.ru_title, decision.ru_body, path)
+        except Exception as exc:
+            log.exception("video_generation_failed error=%s", exc.__class__.__name__)
+            return None
 
     async def run_once(self) -> int:
         items = await self.collector.collect(DEFAULT_SOURCES)
@@ -55,6 +61,14 @@ class NewsWorker:
                     self.store.set_review_status(story.url, "rejected")
                     continue
                 video = await self._make_video(story, decision)
+
+                # One-time launch post: if AUTO_PUBLISH_URL matches, publish it directly.
+                if self.bootstrap_url and story.url == self.bootstrap_url:
+                    message_id = await self.publisher.publish(decision, [story.url], video)
+                    self.store.mark_published(story.url, message_id)
+                    self.bootstrap_url = ""
+                    continue
+
                 key = story.review_key or make_review_key(story.url)
                 message_id = await self.publisher.send_review(decision, key, [story.url], self.settings.telegram_admin_user_id, video)
                 self.store.set_review_message(story.url, message_id)
