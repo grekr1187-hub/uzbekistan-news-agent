@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 from .models import EditorialDecision
@@ -34,33 +36,44 @@ class TelegramPublisher:
         await self.bot.initialize()
 
     async def publish(self, decision: EditorialDecision, sources: list[str], video_path: str | None = None) -> str:
+        if video_path and Path(video_path).exists():
+            try:
+                with open(video_path, "rb") as video:
+                    message = await self.bot.send_video(chat_id=self.channel_id, video=video, caption=render(decision, sources), parse_mode="HTML")
+                return str(message.message_id)
+            except Exception:
+                pass
         message = await self.bot.send_message(chat_id=self.channel_id, text=render(decision, sources), parse_mode="HTML", disable_web_page_preview=True)
-        if video_path:
-            with open(video_path, "rb") as video:
-                await self.bot.send_video(chat_id=self.channel_id, video=video, caption=f"🇺🇿 {decision.ru_title}")
         return str(message.message_id)
 
     async def send_review(self, decision: EditorialDecision, story_key: str, sources: list[str], admin_user_id: int, video_path: str | None = None) -> str:
-        message = await self.bot.send_message(
-            chat_id=admin_user_id, text=render(decision, sources, review=True), parse_mode="HTML",
-            disable_web_page_preview=True, reply_markup=review_keyboard(story_key),
-        )
-        if video_path:
-            with open(video_path, "rb") as video:
-                await self.bot.send_video(chat_id=admin_user_id, video=video, caption=f"🎬 {decision.ru_title}")
+        if video_path and Path(video_path).exists():
+            try:
+                with open(video_path, "rb") as video:
+                    message = await self.bot.send_video(chat_id=admin_user_id, video=video, caption=render(decision, sources, review=True), parse_mode="HTML", reply_markup=review_keyboard(story_key))
+                return str(message.message_id)
+            except Exception:
+                pass
+        message = await self.bot.send_message(chat_id=admin_user_id, text=render(decision, sources, review=True), parse_mode="HTML", disable_web_page_preview=True, reply_markup=review_keyboard(story_key))
         return str(message.message_id)
 
     async def update_review(self, admin_user_id: int, message_id: str, decision: EditorialDecision, sources: list[str], story_key: str, video_path: str | None = None) -> None:
-        await self.bot.edit_message_text(
-            chat_id=admin_user_id, message_id=int(message_id), text=render(decision, sources, review=True),
-            parse_mode="HTML", disable_web_page_preview=True, reply_markup=review_keyboard(story_key),
-        )
-        if video_path:
-            with open(video_path, "rb") as video:
-                await self.bot.send_video(chat_id=admin_user_id, video=video, caption=f"🎬 Обновлённое видео: {decision.ru_title}")
+        try:
+            await self.bot.edit_message_text(chat_id=admin_user_id, message_id=int(message_id), text=render(decision, sources, review=True), parse_mode="HTML", disable_web_page_preview=True, reply_markup=review_keyboard(story_key))
+        except Exception:
+            pass
+        if video_path and Path(video_path).exists():
+            try:
+                with open(video_path, "rb") as video:
+                    await self.bot.send_video(chat_id=admin_user_id, video=video, caption=f"🎬 {decision.ru_title}")
+            except Exception:
+                pass
 
     async def finish_review(self, admin_user_id: int, message_id: str, text: str) -> None:
-        await self.bot.edit_message_text(chat_id=admin_user_id, message_id=int(message_id), text=text, parse_mode="HTML")
+        try:
+            await self.bot.edit_message_text(chat_id=admin_user_id, message_id=int(message_id), text=text, parse_mode="HTML")
+        except Exception:
+            await self.bot.send_message(chat_id=admin_user_id, text=text, parse_mode="HTML")
 
     async def answer_callback(self, callback_id: str, text: str, show_alert: bool = False) -> None:
         await self.bot.answer_callback_query(callback_id, text=text, show_alert=show_alert)
