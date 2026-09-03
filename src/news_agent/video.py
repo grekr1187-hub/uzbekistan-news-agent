@@ -23,6 +23,51 @@ def _wrap(text: str, width: int) -> list[str]:
     return textwrap.wrap(" ".join(text.split()), width=width, break_long_words=False)
 
 
+def make_news_image(title: str, body: str, output_path: str) -> str:
+    """Create a free branded vertical news image locally from the generated story text."""
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    width, height = 1080, 1350
+    image = Image.new("RGB", (width, height), (10, 18, 32))
+    pixels = image.load()
+    for y in range(height):
+        blend = y / max(height - 1, 1)
+        r = int(10 + 8 * blend)
+        g = int(18 + 20 * blend)
+        b = int(32 + 28 * blend)
+        for x in range(width):
+            pixels[x, y] = (r, g, b)
+
+    draw = ImageDraw.Draw(image)
+    title_font = _font(62)
+    body_font = _font(34)
+    small_font = _font(27)
+
+    draw.rounded_rectangle((55, 55, width - 55, 160), radius=28, fill=(23, 47, 72))
+    draw.text((88, 88), "🇺🇿  УЗБЕКИСТАН СЛУШАЕТ", font=small_font, fill="white")
+    draw.rounded_rectangle((55, 195, 190, 211), radius=8, fill=(255, 255, 255))
+
+    title_lines = _wrap(title, 25)[:6]
+    body_lines = _wrap(body, 43)[:9]
+
+    y = 265
+    for line in title_lines:
+        draw.text((65, y), line, font=title_font, fill="white")
+        y += 78
+
+    y += 35
+    for line in body_lines:
+        draw.text((65, y), line, font=body_font, fill=(225, 235, 245))
+        y += 48
+
+    draw.rounded_rectangle((55, height - 155, width - 55, height - 55), radius=24, fill=(18, 34, 52))
+    draw.text((82, height - 125), "Новости Узбекистана  •  AI-редактор", font=small_font, fill=(185, 200, 218))
+
+    image.save(out, format="JPEG", quality=92, optimize=True)
+    return str(out)
+
+
 def make_news_video(title: str, body: str, output_path: str, seconds: int = 8) -> str:
     """Create a free vertical news short locally; no paid video API is required."""
     out = Path(output_path)
