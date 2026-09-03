@@ -35,7 +35,7 @@ class TelegramPublisher:
     async def initialize(self) -> None:
         await self.bot.initialize()
 
-    async def publish(self, decision: EditorialDecision, sources: list[str], video_path: str | None = None) -> str:
+    async def publish(self, decision: EditorialDecision, sources: list[str], video_path: str | None = None, image_path: str | None = None) -> str:
         if video_path and Path(video_path).exists():
             try:
                 with open(video_path, "rb") as video:
@@ -43,10 +43,17 @@ class TelegramPublisher:
                 return str(message.message_id)
             except Exception:
                 pass
+        if image_path and Path(image_path).exists():
+            try:
+                with open(image_path, "rb") as image:
+                    message = await self.bot.send_photo(chat_id=self.channel_id, photo=image, caption=render(decision, sources), parse_mode="HTML")
+                return str(message.message_id)
+            except Exception:
+                pass
         message = await self.bot.send_message(chat_id=self.channel_id, text=render(decision, sources), parse_mode="HTML", disable_web_page_preview=True)
         return str(message.message_id)
 
-    async def send_review(self, decision: EditorialDecision, story_key: str, sources: list[str], admin_user_id: int, video_path: str | None = None) -> str:
+    async def send_review(self, decision: EditorialDecision, story_key: str, sources: list[str], admin_user_id: int, video_path: str | None = None, image_path: str | None = None) -> str:
         if video_path and Path(video_path).exists():
             try:
                 with open(video_path, "rb") as video:
@@ -54,10 +61,17 @@ class TelegramPublisher:
                 return str(message.message_id)
             except Exception:
                 pass
+        if image_path and Path(image_path).exists():
+            try:
+                with open(image_path, "rb") as image:
+                    message = await self.bot.send_photo(chat_id=admin_user_id, photo=image, caption=render(decision, sources, review=True), parse_mode="HTML", reply_markup=review_keyboard(story_key))
+                return str(message.message_id)
+            except Exception:
+                pass
         message = await self.bot.send_message(chat_id=admin_user_id, text=render(decision, sources, review=True), parse_mode="HTML", disable_web_page_preview=True, reply_markup=review_keyboard(story_key))
         return str(message.message_id)
 
-    async def update_review(self, admin_user_id: int, message_id: str, decision: EditorialDecision, sources: list[str], story_key: str, video_path: str | None = None) -> None:
+    async def update_review(self, admin_user_id: int, message_id: str, decision: EditorialDecision, sources: list[str], story_key: str, video_path: str | None = None, image_path: str | None = None) -> None:
         try:
             await self.bot.edit_message_text(chat_id=admin_user_id, message_id=int(message_id), text=render(decision, sources, review=True), parse_mode="HTML", disable_web_page_preview=True, reply_markup=review_keyboard(story_key))
         except Exception:
@@ -66,6 +80,13 @@ class TelegramPublisher:
             try:
                 with open(video_path, "rb") as video:
                     await self.bot.send_video(chat_id=admin_user_id, video=video, caption=f"🎬 {decision.ru_title}")
+                return
+            except Exception:
+                pass
+        if image_path and Path(image_path).exists():
+            try:
+                with open(image_path, "rb") as image:
+                    await self.bot.send_photo(chat_id=admin_user_id, photo=image, caption=f"🖼 {decision.ru_title}")
             except Exception:
                 pass
 
