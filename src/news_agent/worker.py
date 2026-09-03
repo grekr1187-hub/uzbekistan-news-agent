@@ -14,7 +14,7 @@ from .models import Story
 from .sources import DEFAULT_SOURCES
 from .store import StoryStore, make_review_key
 from .telegram import TelegramPublisher
-from .video import make_news_video
+from .video import make_news_image, make_news_video
 
 log = logging.getLogger(__name__)
 
@@ -29,18 +29,34 @@ class NewsWorker:
         self._update_offset: int | None = None
         self.bootstrap_url = os.getenv("AUTO_PUBLISH_URL", "").strip()
         self.bootstrap_title = "Государственный долг Узбекистана превысил 48 млрд долларов"
+        self.generate_video = os.getenv("GENERATE_VIDEO", "false").strip().lower() in {"1", "true", "yes", "on"}
 
-    def _video_path(self, story_key: str) -> str:
+    def _media_path(self, story_key: str, suffix: str) -> str:
         safe = "".join(c if c.isalnum() else "_" for c in story_key)[:40]
-        return str(Path(tempfile.gettempdir()) / f"news_{safe}.mp4")
+        return str(Path(tempfile.gettempdir()) / f"news_{safe}.{suffix}")
+
+    async def _make_image(self, story: Story, decision) -> str | None:
+        try:
+            path = self._media_path(story.review_key or make_review_key(story.url), "jpg")
+            return await asyncio.to_thread(make_news_image, decision.ru_title, decision.ru_body, path)
+        except Exception as exc:
+            log.exception("image_generation_failed error=%s", exc.__class__.__name__)
+            return None
 
     async def _make_video(self, story: Story, decision) -> str | None:
+        if not self.generate_video:
+            return None
         try:
-            path = self._video_path(story.review_key or make_review_key(story.url))
+            path = self._media_path(story.review_key or make_review_key(story.url), "mp4")
             return await asyncio.to_thread(make_news_video, decision.ru_title, decision.ru_body, path)
         except Exception as exc:
             log.exception("video_generation_failed error=%s", exc.__class__.__name__)
             return None
+
+    async def _make_media(self, story: Story, decision) -> tuple[str | None, str | None]:
+        image = await self._make_image(story, decision)
+        video = await self._make_video(story, decision)
+        return video, image
 
     async def run_once(self) -> int:
         items = await self.collector.collect(DEFAULT_SOURCES)
@@ -61,7 +77,7 @@ class NewsWorker:
                 if decision.status == "reject":
                     self.store.set_review_status(story.url, "rejected")
                     continue
-                video = await self._make_video(story, decision)
+                video, image = await self._make_media(story, decision)
 
                 # One-time launch test: publish the requested current-day Uzbekistan headline directly.
                 launch_post = (
@@ -70,13 +86,13 @@ class NewsWorker:
                     or (self.bootstrap_url == "" and self.bootstrap_title.lower() in story.title.lower())
                 )
                 if launch_post:
-                    message_id = await self.publisher.publish(decision, [story.url], video)
+                    message_id = await self.publisher.publish(decision, [story.url], video, image)
                     self.store.mark_published(story.url, message_id)
                     self.bootstrap_url = "__done__"
                     continue
 
                 key = story.review_key or make_review_key(story.url)
-                message_id = await self.publisher.send_review(decision, key, [story.url], self.settings.telegram_admin_user_id, video)
+                message_id = await self.publisher.send_review(decision, key, [story.url], self.settings.telegram_admin_user_id, video, image)
                 self.store.set_review_message(story.url, message_id)
                 reviews += 1
             except Exception as exc:
@@ -107,8 +123,8 @@ class NewsWorker:
             if story.review_status in {"rejected", "published"}:
                 return
             decision = await self.editor.evaluate_and_write(story, [])
-            video = await self._make_video(story, decision)
-            await self.publisher.update_review(user_id, story.review_message_id, decision, [story.url], story_key, video)
+            video, image = await self._make_media(story, decision)
+            await self.publisher.update_review(user_id, story.review_message_id, decision, [story.url], story_key, video, image)
             self.store.mark_status(story.url, decision.status)
             return
         if action == "approve":
@@ -120,8 +136,8 @@ class NewsWorker:
                 self.store.set_review_status(story.url, "rejected")
                 await self.publisher.finish_review(user_id, story.review_message_id, "❌ <b>Отклонено AI-проверкой</b>\n\nНовость не опубликована.")
                 return
-            video = await self._make_video(story, decision)
-            message_id = await self.publisher.publish(decision, [story.url], video)
+            video, image = await self._make_media(story, decision)
+            message_id = await self.publisher.publish(decision, [story.url], video, image)
             self.store.mark_published(story.url, message_id)
             await self.publisher.finish_review(user_id, story.review_message_id, f"✅ <b>Опубликовано</b>\n\nСообщение канала: #{message_id}")
 
