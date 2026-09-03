@@ -28,7 +28,7 @@ class NewsWorker:
         self.publisher = TelegramPublisher(settings.telegram_bot_token, settings.telegram_channel_id)
         self._update_offset: int | None = None
         self.bootstrap_url = os.getenv("AUTO_PUBLISH_URL", "").strip()
-        self.bootstrap_title = "Государственный долг Узбекистана превысил 48 млрд долларов"
+        self.bootstrap_title = "Президент Узбекистана обсудил с сенатором США дальнейшее укрепление стратегического партнерства"
         self.generate_video = os.getenv("GENERATE_VIDEO", "false").strip().lower() in {"1", "true", "yes", "on"}
 
     def _media_path(self, story_key: str, suffix: str) -> str:
@@ -79,7 +79,7 @@ class NewsWorker:
                     continue
                 video, image = await self._make_media(story, decision)
 
-                # One-time launch test: publish the requested current-day Uzbekistan headline directly.
+                # One-time launch test: publish the current-day Uzbekistan headline directly.
                 launch_post = (
                     self.bootstrap_url == "*"
                     or (self.bootstrap_url and story.url == self.bootstrap_url)
