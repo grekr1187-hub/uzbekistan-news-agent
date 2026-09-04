@@ -1,0 +1,48 @@
+name: Uzbekistan News Agent
+
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+    inputs:
+      publish_first:
+        description: 'Publish the launch post now'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: uzbekistan-news-agent
+  cancel-in-progress: false
+
+jobs:
+  news-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+      TELEGRAM_ADMIN_USER_ID: ${{ secrets.TELEGRAM_ADMIN_USER_ID }}
+      DATABASE_PATH: data/news.db
+      POLL_INTERVAL_SECONDS: '300'
+      RUN_MODE: cron
+      GENERATE_VIDEO: 'false'
+      AUTO_PUBLISH_URL: ${{ inputs.publish_first && 'https://president.uz/ru/lists/view/9576' || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install .
+
+      - name: Run news agent
+        run: python -m news_agent.main
